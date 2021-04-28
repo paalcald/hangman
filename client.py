@@ -1,9 +1,7 @@
 #! /usr/bin/python3
 import multiprocessing as mp
 import multiprocessing.connection as cn
-import threading as th
 import sys
-import socket
 import time
 
 def handle_conn_error(error_code, local_info):
@@ -66,7 +64,6 @@ def main(argv):
         'port': mp.Value('i',local_port),
         'authkey': b"secret client pass"
     }
-    #find opponent
 
     print(f"attempting to connect to {server_info['address']}"
           f" at port {server_info['port']}\n"
@@ -84,8 +81,6 @@ def main(argv):
         sv.start()
         listener_ready.acquire()
         local_info['port'] = local_info['port'].value
-        #attemp connection to enemy
-        #opponent_found.acquire()
         status = 0;  
         """ 
         status = { 0 => being added to playerbase  ,
@@ -129,7 +124,5 @@ def main(argv):
                 else:
                     op_conn.send((local_info['name'], msg_out))
 
-
-#conectar con el servidor
 if __name__ == '__main__':
     main(sys.argv[1:])
