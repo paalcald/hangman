@@ -2,7 +2,6 @@
 import multiprocessing as mp
 import multiprocessing.connection as cn
 import sys
-import socket
     
 class UsernameTaken(Exception):
     """the username is taken """
