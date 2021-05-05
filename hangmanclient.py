@@ -1,18 +1,17 @@
 #! /usr/bin/python3
 import multiprocessing as mp
 import multiprocessing.connection as cn
-import ctypes
 import sys
 import socket
 import time
+import ctypes
 
 class Hangman_Interface():
     def __init__(self, name1, manager, ready):
         self.chat_log      = manager.list()
         self.known_letters = manager.list()
         self.player_name   = name1
-        self.op_name       = manager.list()
-        self.op_name.append("")
+        self.op_name       = manager.Value(ctypes.c_wchar_p, "")
         self.player_score  = mp.Value('i', 0)
         self.word_length   = mp.Value('i', 0)
         self.mistakes      = mp.Value('i', 7)
@@ -24,7 +23,7 @@ class Hangman_Interface():
 
     def set_op(self, op):
         self.mutex.acquire()
-        self.op_name[0] = op
+        self.op_name.value = op
         self.refresh_cond.notify_all()
         self.mutex.release()
     
@@ -63,14 +62,25 @@ class Hangman_Interface():
         self.mutex.release()
 
     def artf(self, leng, letters, mistakes, op_mistakes):
+        player = self.player_name.value
+        oponent = self.op_name.value
         length = leng
         l = letters
         r = map(lambda i: "▔▔▔" if (i < leng) else ' ', range(12))
         art = [[0]*8]*8
         for i in range(8):
             for j in range(8):
-                art[i][j] = f"player: {i}, oponent: {j}, chat: {self.chat_log}"
+                art[i][j] = f"{player}: {i}, {oponent}: {j}, chat: {self.chat_log}"
         return art[mistakes][op_mistakes]
+
+def send_fmt(local_info):
+    fmtd_info            = {}
+    fmtd_info['name']    = local_info['name'].value
+    fmtd_info['address'] = local_info['address']
+    fmtd_info['port']    = local_info['port'].value
+    fmtd_info['authkey'] = local_info['authkey']
+    return fmtd_info
+
 
 def handle_conn_error(error_code, local_info):
     if error_code == -1:
@@ -78,8 +88,8 @@ def handle_conn_error(error_code, local_info):
         change_username(new_username, local_info)
 
 def change_username(new_username, local_info):
-    local_info['name'] = new_username
-    print(f"new username is {local_info['name']}")
+    local_info['name'].value = new_username
+    print(f"new username is {local_info['name'].value}")
 
 def handle_connection(conn, intf):
     while True:
@@ -119,18 +129,18 @@ def main(argv):
         local_name = argv[2]
         local_address = argv[3]
         local_port = int(argv[4])
+    m = mp.Manager()
     server_info = {
         'address' : server_address,
         'port'    : server_port,
         'authkey' : b"secret server pass"
     }
     local_info ={
-        'name'    : 'pab',
+        'name'    : m.Value(ctypes.c_wchar_p, "pab"),
         'address' : local_address,
         'port'    : mp.Value('i',local_port),
         'authkey' : b"secret client pass"
     }
-    m = mp.Manager()
     #find opponent
 
     print(f"attempting to connect to {server_info['address']}"
@@ -154,7 +164,6 @@ def main(argv):
                                                    intf))
         sv.start()
         listener_ready.acquire()
-        local_info['port'] = local_info['port'].value
         #attemp connection to enemy
         status = 0;  
         """ 
@@ -165,7 +174,7 @@ def main(argv):
         while True:
             # CONNECTING
             if status == 0: 
-                sv_conn.send(local_info)
+                sv_conn.send(send_fmt(local_info))
                 (code, msg) = sv_conn.recv()
                 if code == 0: # 0 for connection success
                     status = 1
@@ -179,6 +188,7 @@ def main(argv):
                 if code == 0:
                     intf.update_chat_log(msg)
                 elif code == 1:
+                    print(msg)
                     op_conn = cn.Client(address=(msg['address'],
                                                    msg['port']),
                                           authkey= msg['authkey'])
@@ -201,7 +211,7 @@ def main(argv):
                         status = 1 #in lobby
                         op_conn.close()
                 else:
-                    op_conn.send((local_info['name'], msg_out))
+                    op_conn.send((local_info['name'].value, msg_out))
 
 
 #conectar con el servidor
