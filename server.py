@@ -53,7 +53,7 @@ class Playerbase:
         self.mutex.acquire()
         out = self.cond.wait_for(lambda: 
                 (self.username, opponent) in self.listRequests(),
-                timeout = 30)
+                timeout = 10)
         self.mutex.release()
         return out
 

@@ -5,14 +5,16 @@ import sys
 import socket
 import time
 import ctypes
+import string
 
 class Hangman_Interface():
     def __init__(self, name1, manager, ready):
-        self.chat_log      = manager.list()
-        self.known_letters = manager.list()
+        self.chat_log      = manager.list(("","","","","",""))
+        self.known_letters = manager.list(("","","","","","","","","","","",""))
         self.player_name   = name1
-        self.op_name       = manager.Value(ctypes.c_wchar_p, "")
+        self.op_name       = manager.Value(ctypes.c_wchar_p, "--")
         self.player_score  = mp.Value('i', 0)
+        self.op_score      = mp.Value('i', 0)
         self.word_length   = mp.Value('i', 0)
         self.mistakes      = mp.Value('i', 7)
         self.op_mistakes   = mp.Value('i', 7)
@@ -33,9 +35,15 @@ class Hangman_Interface():
         self.refresh_cond.notify_all()
         self.mutex.release()
         
-    def update_chat_log(self, msg):
+    def update_log(self, msg):
         self.mutex.acquire()
-        self.chat_log.append(msg)
+        if len(self.chat_log) < 6:
+            for entry in msg:
+                self.chat_log.append(entry)
+        else:
+            for entry in msg:
+                self.chat_log.pop(0)
+                self.chat_log.append(entry)
         self.refresh_cond.notify_all()
         self.mutex.release()
 
@@ -54,7 +62,7 @@ class Hangman_Interface():
 
     def refresh(self):
         self.mutex.acquire()
-        self.refresh_cond.wait()
+        self.refresh_cond.wait(30)
         print(self.artf(self.word_length.value,
                         self.known_letters,
                         self.mistakes.value,
@@ -62,16 +70,46 @@ class Hangman_Interface():
         self.mutex.release()
 
     def artf(self, leng, letters, mistakes, op_mistakes):
-        player = self.player_name.value
-        oponent = self.op_name.value
-        length = leng
-        l = letters
-        r = map(lambda i: "▔▔▔" if (i < leng) else ' ', range(12))
+        play1 = self.player_name.value
+        pla2  = self.op_name.value
+        length = self.word_length.value
+        s1 = self.player_score.value
+        s2 = self.op_score.value
+        l = list(self.known_letters)
+        r = list(map(lambda i: "▔▔▔" if (i < length) else ' ', range(12)))
+        chat = list(self.chat_log)
         art = [[0]*8]*8
         for i in range(8):
             for j in range(8):
-                art[i][j] = f"{player}: {i}, {oponent}: {j}, chat: {self.chat_log}"
-        return art[mistakes][op_mistakes]
+                art[i][j] = f"{play1}: {i}, {pla2}: {j}, chat: {self.chat_log}"
+        art[7][7]=f"""
+╔═══════════════════════════════════════════════════════════════════╗
+║ {play1:10} {s1:^3}              🅷🅰🅽🅶🅼🅰🅽                {s2:^3} {pla2:>10} ║
+╠═══════════════════════════════════════════════════════════════════╣
+║                      ▛▀▀▀▀▀▀▀▀▀██▀▀▀▀▀▀▀▀▜                        ║
+║                      ┊         ██        ┊                        ║
+║                      O         ██        O                        ║
+║                     /|\        ██       /|\                       ║
+║                      |         ██        |                        ║
+║                     / \        ██       / \                       ║
+║                                ██                                 ║
+║                ▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂██▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂                 ║
+║                ▐▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▌                 ║
+║                ▐▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▌                 ║
+║                ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀                 ║
+║                                                                   ║
+║          {l[0]:^3} {l[1]:^3} {l[2]:^3} {l[3]:^3} {l[4]:^3} {l[5]:^3} {l[6]:^3} {l[7]:^3} {l[8]:^3} {l[9]:^3} {l[10]:^3} {l[11]:^3}          ║
+║          {r[0]:3} {r[1]:3} {r[2]:^3} {r[3]:3} {r[4]:3} {r[5]:3} {r[6]:3} {r[7]:3} {r[8]:3} {r[9]:3} {r[10]:3} {r[11]:3}          ║
+╠═══════════════════════════════════════════════════════════════════╣
+║ {chat[0]:66}║
+║ {chat[1]:66}║
+║ {chat[2]:66}║
+║ {chat[3]:66}║
+║ {chat[4]:66}║
+║ {chat[5]:66}║
+╚═══════════════════════════════════════════════════════════════════╝
+"""      
+        return art[self.mistakes.value][self.op_mistakes.value]
 
 def send_fmt(local_info):
     fmtd_info            = {}
@@ -95,7 +133,7 @@ def handle_connection(conn, intf):
     while True:
         (user, msg) = conn.recv()
         msg_f = f"[{user}]: {msg}"
-        intf.update_chat_log(msg_f)
+        intf.update_log(msg_f)
 
 def cl_listener(info, ready, intf):
     print(f"Opening listener")
@@ -141,17 +179,14 @@ def main(argv):
         'port'    : mp.Value('i',local_port),
         'authkey' : b"secret client pass"
     }
-    #find opponent
-
     print(f"attempting to connect to {server_info['address']}"
           f" at port {server_info['port']}\n"
           f"from {local_info['address']}"
-          f" at port {local_info['port']}\n")
+          f" at port {local_info['port'].value}\n")
 
     with cn.Client(address=(server_info['address'], server_info['port']) ,
                       authkey= server_info['authkey']) as sv_conn:
-        listener_ready = mp.Semaphore(value=0)
-        
+        #lanzar la interfaz del juego
         intf_ready = mp.Semaphore(value=0)
         intf = Hangman_Interface(local_info['name'],
                                  m,
@@ -159,12 +194,12 @@ def main(argv):
         intf.printing.start()
         intf_ready.acquire()
         #lanzar el proceso que escucha del juego
+        listener_ready = mp.Semaphore(value=0)
         sv = mp.Process(target = cl_listener, args = (local_info,
                                                    listener_ready,
                                                    intf))
         sv.start()
         listener_ready.acquire()
-        #attemp connection to enemy
         status = 0;  
         """ 
         status = { 0 => being added to playerbase  ,
@@ -186,16 +221,14 @@ def main(argv):
                 sv_conn.send(msg_out)
                 (code, msg) = sv_conn.recv()
                 if code == 0:
-                    intf.update_chat_log(msg)
+                    intf.update_log(msg)
                 elif code == 1:
                     print(msg)
                     op_conn = cn.Client(address=(msg['address'],
                                                    msg['port']),
                                           authkey= msg['authkey'])
                     status = 2  
-                    print("conn ready")
                     (op_name, word_length) = sv_conn.recv()
-                    print("op info recv")
                     intf.set_op(op_name)
                     intf.set_len(word_length)
             # PLAYING
@@ -211,7 +244,10 @@ def main(argv):
                         status = 1 #in lobby
                         op_conn.close()
                 else:
-                    op_conn.send((local_info['name'].value, msg_out))
+                    fmtd_msg_out = (local_info['name'].value, msg_out)
+                    op_conn.send(fmtd_msg_out)
+                    intf.update_log(f"[{fmtd_msg_out[0]}]: {fmtd_msg_out[1]}")
+
 
 
 #conectar con el servidor
