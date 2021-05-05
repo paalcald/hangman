@@ -46,7 +46,6 @@ class Playerbase:
     def acceptRequest(self, opponent):
         self.mutex.acquire()
         self.requests.append((opponent, self.username))
-        print(self.requests)
         self.cond.notify_all()
         self.mutex.release()
 
@@ -89,7 +88,7 @@ def process_input(msg, new_player, pb, status):
             op = args
             pb.acceptRequest(op)
             msg_out = (1, pb.getInfo(op))
-            print(msg_out)
+            status = 2
         except KeyError:
             to_print = "couldn't find opponent, type 'ls' for list"
             msg_out = (0, to_print)
@@ -120,8 +119,9 @@ def process_input(msg, new_player, pb, status):
 
     else:
         to_print = ["unknown command, type 'help' to see available ones"] 
-        msg_out = ('print', to_print)
+        msg_out = (0, to_print)
     new_player.send(msg_out)
+    return (1 if status==1 else 2)
         
 
 def handle_connection(new_player, tmp_id, playerbase):
@@ -141,8 +141,10 @@ def handle_connection(new_player, tmp_id, playerbase):
             new_player.send(msg)
         elif status == 1: # player in lobby
             msg = new_player.recv()
-            process_input(msg, new_player, playerbase, status)
+            status = process_input(msg, new_player, playerbase, status)
         elif status == 2: # playing
+            print(f"{playerbase.username} is playing" )
+            new_player.send(('pepe', 4))
             msg = new_player.recv()
             new_player.send("lol")
 
