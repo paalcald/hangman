@@ -2,7 +2,33 @@
 import multiprocessing as mp
 import multiprocessing.connection as cn
 import sys
+import socket
 import time
+
+class Hangman_Interface():
+    def __init__(self, name, length, manager):
+        self.chat_log = manager.list()
+        self.player_name = name 
+        self.player_score = mp.Value('i', 0)
+        self.word_length = mp.Value('i', length)
+        self.lives_left = mp.Value('i', 7)
+        self.mutex = mp.Lock()
+        self.refresh_cond = mp.Condition(self.mutex)
+        
+    def update_chat_log(self, msg):
+        self.mutex.acquire()
+        self.chat_log.append(msg)
+        self.refresh_cond.notify_all()
+        self.mutex.release()
+"""
+   ╒═══════════════════════════════════════════════════════════════════╕
+   │                              🅷🅰🅽🅶🅼🅰🅽                              │
+   ╞═══════════════════════════════════════════════════════════════════╡
+"""
+    def update_game_state(self, msg):
+
+
+def update_game_state(game_state):
 
 def handle_conn_error(error_code, local_info):
     if error_code == -1:
@@ -54,16 +80,17 @@ def main(argv):
         local_address = argv[3]
         local_port = int(argv[4])
     server_info = {
-        'address': server_address,
-        'port': server_port,
-        'authkey': b"secret server pass"
+        'address' : server_address,
+        'port'    : server_port,
+        'authkey' : b"secret server pass"
     }
-    local_info = {
-        'name': 'pab',
-        'address': local_address,
-        'port': mp.Value('i',local_port),
-        'authkey': b"secret client pass"
+    local_info ={
+        'name'    : 'pab',
+        'address' : local_address,
+        'port'    : mp.Value('i',local_port),
+        'authkey' : b"secret client pass"
     }
+    #find opponent
 
     print(f"attempting to connect to {server_info['address']}"
           f" at port {server_info['port']}\n"
@@ -81,6 +108,8 @@ def main(argv):
         sv.start()
         listener_ready.acquire()
         local_info['port'] = local_info['port'].value
+        #attemp connection to enemy
+        #opponent_found.acquire()
         status = 0;  
         """ 
         status = { 0 => being added to playerbase  ,
@@ -88,15 +117,16 @@ def main(argv):
                    2 => playing                    }
         """
         while True:
-            if status == 0: # being added to playerbase
+            # CONNECTING
+            if status == 0: 
                 sv_conn.send(local_info)
                 (code, msg) = sv_conn.recv()
                 if code == 0: # 0 for connection success
                     status = 1
                 elif code == -1: # -1 for connection error
                     handle_conn_error(msg, local_info)
-
-            elif status == 1: # player in lobby
+            # IN LOBBY
+            elif status == 1:
                 msg_out = input("> ")
                 sv_conn.send(msg_out)
                 (code, msg) = sv_conn.recv()
@@ -107,22 +137,24 @@ def main(argv):
                     op_conn = cn.Client(address=(msg['address'],
                                                    msg['port']),
                                           authkey= msg['authkey'])
-                    status = 2 
+                    status = 2  
                     print("playing")
-
-            elif status == 2: # playing
+            # PLAYING
+            elif status == 2:
                 msg_out = input("")
                 if len(msg_out) == 1:
                     sv_conn.send(msg_out)
-                    game_state = sv_conn.recv()
-                    if game_state[0] == 'ongoing':
-                        print(game_state[1])
-                    elif game_state[0] == 'over':
-                        print(game_state[1])
-                        game_conn.close()
-                        playing = False
+                    (code, game_state) = sv_conn.recv()
+                    if code == 1: #game ongoing
+                        update_game_state(game_state)
+                    elif code == 0: #game over
+                        print(game_state)
+                        status = 1 #in lobby
+                        op_conn.close()
                 else:
                     op_conn.send((local_info['name'], msg_out))
 
+
+#conectar con el servidor
 if __name__ == '__main__':
     main(sys.argv[1:])
