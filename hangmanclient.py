@@ -9,7 +9,13 @@ import string
 
 class Hangman_Interface():
     def __init__(self, name1, manager, ready):
-        self.chat_log      = manager.list(("","","","","",""))
+        w1 = "Welcome to the Hangman game interface, a game developed by UCM"
+        w2 = "students to learn to code using parallel programming tecniques."
+        w3 = "To start playing type a command, 'help' to see available ones."
+        w4 = " "
+        w5 = " "
+        w6 = "You are now connected to the server. Enjoy your time!!"
+        self.chat_log      = manager.list((w1,w2,w3,w4,w5,w6))
         self.known_letters = manager.list(("","","","","","","","","","","",""))
         self.player_name   = name1
         self.op_name       = manager.Value(ctypes.c_wchar_p, "--")
@@ -57,19 +63,17 @@ class Hangman_Interface():
 
     def show_intf(self):
         self.ready.release()
+        print(self.artf())
         while True:
             self.refresh()
 
     def refresh(self):
         self.mutex.acquire()
         self.refresh_cond.wait(30)
-        print(self.artf(self.word_length.value,
-                        self.known_letters,
-                        self.mistakes.value,
-                        self.op_mistakes.value))
+        print(self.artf())
         self.mutex.release()
 
-    def artf(self, leng, letters, mistakes, op_mistakes):
+    def artf(self):
         play1 = self.player_name.value
         pla2  = self.op_name.value
         length = self.word_length.value
@@ -107,8 +111,7 @@ class Hangman_Interface():
 ║ {chat[3]:66}║
 ║ {chat[4]:66}║
 ║ {chat[5]:66}║
-╚═══════════════════════════════════════════════════════════════════╝
-"""      
+╚═══════════════════════════════════════════════════════════════════╝"""      
         return art[self.mistakes.value][self.op_mistakes.value]
 
 def send_fmt(local_info):
@@ -247,8 +250,6 @@ def main(argv):
                     fmtd_msg_out = (local_info['name'].value, msg_out)
                     op_conn.send(fmtd_msg_out)
                     intf.update_log(f"[{fmtd_msg_out[0]}]: {fmtd_msg_out[1]}")
-
-
 
 #conectar con el servidor
 if __name__ == '__main__':
