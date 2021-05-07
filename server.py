@@ -30,7 +30,6 @@ class Playerbase:
         self.mutex = mp.Lock()
         self.requests = manager.list()
         self.cond = mp.Condition(self.mutex)
-        self.notif_c = mp.Condition()
 
     def add(self, player, player_info, player_conn):
         self.mutex.acquire()
@@ -89,14 +88,16 @@ def process_input(msg, new_player, pb, status):
 
     if command == 'help':
         to_print = ["Please type an available command for server interaction",
-                "- ls : display current playerbase",
-                "- play <player> : request to play against <player>",
-                "- accept <player> : accept to play against <player>",
-                "- info <player>"]
+                " - ls : display current playerbase",
+                " - play <player> : request to play against <player>",
+                " - accept <player> : accept to play against <player>"]
         msg_out = (0, to_print)
 
     elif command == 'ls':
         to_print = pb.getPlayers()
+        to_print.remove(pb.username)
+        to_print =list(map(lambda string: " -" + string, to_print))
+        to_print.insert(0, "jugadores: ")
         msg_out = (0, to_print) 
 
     elif command == 'request':
@@ -129,6 +130,7 @@ def process_input(msg, new_player, pb, status):
             to_print = ["couldn't find opponent, type 'ls' for list"]
             msg_out = (0, to_print)
 
+# borrar aqui
     elif command == 'info':
         try:
             tar = args
@@ -136,7 +138,7 @@ def process_input(msg, new_player, pb, status):
             msg_out = (0, tar_info)
         except:
             pass
-
+#hasta aqui
     else:
         to_print = ["unknown command, type 'help' to see available ones"] 
         msg_out = (0, to_print)
@@ -147,28 +149,31 @@ def process_input(msg, new_player, pb, status):
 
 def handle_connection(new_player, tmp_id, playerbase, ready):
     status = 0 # adding to db
-    while True:
-        if status == 0: # adding player to playerbase
-            player_info = new_player.recv()
-            try:
-                username = player_info.pop('name')
-                playerbase.setUsername(username)
-                playerbase.add(username, player_info, new_player)
-                status = 1
-                print(f"{tmp_id} added to playerbase as {username}")
-                ready.release()
-                msg = (0, 1)
-            except UsernameTaken:
-                msg = (-1 , -1) # ( -1, 1) for (error, username_taken)
-            new_player.send(msg)
-        elif status == 1: # player in lobby
-            msg = new_player.recv()
-            status = process_input(msg, new_player, playerbase, status)
-        elif status == 2: # playing
-            print(f"{playerbase.username} is playing" )
-            new_player.send(('pepe', 4))
-            msg = new_player.recv()
-            new_player.send("lol")
+    try:
+        while True:
+            if status == 0: # adding player to playerbase
+                player_info = new_player.recv()
+                try:
+                    username = player_info.pop('name')
+                    playerbase.setUsername(username)
+                    playerbase.add(username, player_info, new_player)
+                    status = 1
+                    print(f"{tmp_id} added to playerbase as {username}")
+                    ready.release()
+                    msg = (0, 1)
+                except UsernameTaken:
+                    msg = (-1 , -1) # ( -1, 1) for (error, username_taken)
+                new_player.send(msg)
+            elif status == 1: # player in lobby
+                msg = new_player.recv()
+                status = process_input(msg, new_player, playerbase, status)
+            elif status == 2: # playing
+                print(f"{playerbase.username} is playing" )
+                new_player.send(('pepe', 4))
+                msg = new_player.recv()
+                new_player.send("lol")
+    except:
+        playerbase.remove(playerbase.username)
 
 def main(argv):
     if (len(argv) < 2):
