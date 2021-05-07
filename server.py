@@ -2,6 +2,7 @@
 import multiprocessing as mp
 import multiprocessing.connection as cn
 import sys
+import ctypes
     
 class UsernameTaken(Exception):
     """the username is taken """
@@ -10,22 +11,34 @@ class UsernameTaken(Exception):
 class RequestDenied(Exception):
     """the oponent didnt accept the request on time """
     pass
+class PlayerInfo:
+    def __init__(self, conn, info, manager):
+        self.info = info
+        self.conn = conn
+
+    def get_info(self):
+        return self.info
+    
+    def get_conn(self):
+        return self.conn
+
 class Playerbase:
     def __init__(self, manager):
         self.username = '' 
+        self.manager = manager
         self.players = manager.dict()
         self.mutex = mp.Lock()
         self.requests = manager.list()
-        self.c_mutex = mp.Lock()
         self.cond = mp.Condition(self.mutex)
+        self.notif_c = mp.Condition()
 
-    def add(self, player, player_info):
+    def add(self, player, player_info, player_conn):
         self.mutex.acquire()
         try:
             self.players[player]
             username_taken = True
         except:
-            self.players[player] = player_info
+            self.players[player] = PlayerInfo(player_conn, player_info, self.manager)
             username_taken = False
         self.mutex.release()
         if username_taken:
@@ -38,7 +51,7 @@ class Playerbase:
         self.username = name
 
     def getInfo(self,player):
-        return self.players[player]
+        return self.players[player].get_info()
 
     def getPlayers(self):
         return self.players.keys()
@@ -51,6 +64,9 @@ class Playerbase:
 
     def makeRequest(self, opponent):
         self.mutex.acquire()
+        notification = (2, [f"You received a game request from {self.username}!"])
+        self.players[opponent].get_conn().send(notification)
+        print("request sent to {opponent}")
         out = self.cond.wait_for(lambda: 
                 (self.username, opponent) in self.listRequests(),
                 timeout = 10)
@@ -83,6 +99,10 @@ def process_input(msg, new_player, pb, status):
         to_print = pb.getPlayers()
         msg_out = (0, to_print) 
 
+    elif command == 'request':
+        to_print = pb.listRequests()
+        msg_out = (0, to_print)
+
     elif command == 'accept':
         try:
             op = args
@@ -90,7 +110,7 @@ def process_input(msg, new_player, pb, status):
             msg_out = (1, pb.getInfo(op))
             status = 2
         except KeyError:
-            to_print = "couldn't find opponent, type 'ls' for list"
+            to_print = ["couldn't find opponent, type 'ls' for list"]
             msg_out = (0, to_print)
 
     elif command == 'play':
@@ -103,10 +123,10 @@ def process_input(msg, new_player, pb, status):
             else:
                 raise RequestDenied
         except RequestDenied:
-            to_print = f"{op} did not accept your request"
+            to_print = [f"{op} did not accept your request"]
             msg_out = (0, to_print)
         except KeyError:
-            to_print = "couldn't find opponent, type 'ls' for list"
+            to_print = ["couldn't find opponent, type 'ls' for list"]
             msg_out = (0, to_print)
 
     elif command == 'info':
@@ -121,10 +141,11 @@ def process_input(msg, new_player, pb, status):
         to_print = ["unknown command, type 'help' to see available ones"] 
         msg_out = (0, to_print)
     new_player.send(msg_out)
+    print(msg_out)
     return (1 if status==1 else 2)
         
 
-def handle_connection(new_player, tmp_id, playerbase):
+def handle_connection(new_player, tmp_id, playerbase, ready):
     status = 0 # adding to db
     while True:
         if status == 0: # adding player to playerbase
@@ -132,9 +153,10 @@ def handle_connection(new_player, tmp_id, playerbase):
             try:
                 username = player_info.pop('name')
                 playerbase.setUsername(username)
-                playerbase.add(username, player_info)
+                playerbase.add(username, player_info, new_player)
                 status = 1
                 print(f"{tmp_id} added to playerbase as {username}")
+                ready.release()
                 msg = (0, 1)
             except UsernameTaken:
                 msg = (-1 , -1) # ( -1, 1) for (error, username_taken)
@@ -173,10 +195,13 @@ def main(argv):
             new_player = public_port.accept()
             tmp_id = public_port.last_accepted
             print("new connection from ", tmp_id)
+            player_added = mp.Semaphore(value=0)
             p = mp.Process(target = handle_connection, args =(new_player,
                                                               tmp_id,
-                                                              playerbase))
+                                                              playerbase,
+                                                              player_added))
             p.start()
+            player_added.acquire()
 
 if __name__ == '__main__':
     main(sys.argv[1:])
