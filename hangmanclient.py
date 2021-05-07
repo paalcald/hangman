@@ -36,6 +36,12 @@ class Hangman_Interface():
         self.refresh_cond.notify_all()
         self.mutex.release()
     
+    def update_status(self, state):
+        self.mutex.acquire()
+        self.status.value = state
+        self.refresh_cond.notify_all()
+        self.mutex.release()
+
     def set_len(self, leng):
         self.mutex.acquire()
         self.word_length.value = leng
@@ -254,7 +260,7 @@ def main(argv):
                 answer_received.acquire()
                 (code, msg) = answer.pop()
                 if code == 0: # 0 for connection success
-                    intf.status.value = 1
+                    intf.update_status(1)
                 elif code == -1: # -1 for connection error
                     handle_conn_error(msg, local_info)
                 answer_obtained.release()
@@ -271,7 +277,7 @@ def main(argv):
                     op_conn = cn.Client(address=(msg['address'],
                                                    msg['port']),
                                           authkey= msg['authkey'])
-                    intf.status.value = 2  
+                    intf.update_status(2)  
                     (op_name, word_length) = sv_conn.recv()
                     intf.set_op(op_name)
                     intf.set_len(word_length)
