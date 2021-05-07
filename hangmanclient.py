@@ -17,6 +17,7 @@ class Hangman_Interface():
         w6 = "You are now connected to the server. Enjoy your time!!"
         self.chat_log      = manager.list((w1,w2,w3,w4,w5,w6))
         self.known_letters = manager.list(("","","","","","","","","","","",""))
+        self.status        = mp.Value('i', 0)
         self.player_name   = name1
         self.op_name       = manager.Value(ctypes.c_wchar_p, "--")
         self.player_score  = mp.Value('i', 0)
@@ -135,7 +136,7 @@ def change_username(new_username, local_info):
 def handle_connection(conn, intf):
     while True:
         (user, msg) = conn.recv()
-        msg_f = f"[{user}]: {msg}"
+        msg_f = [f"[{user}]: {msg}"]
         intf.update_log(msg_f)
 
 def cl_listener(info, ready, intf):
@@ -157,11 +158,35 @@ def cl_listener(info, ready, intf):
     p = mp.Process(target = handle_connection, args =(conn,intf))
     p.start()
 
+def recv_loop(sv_conn, ready, answer, answer_received, answer_obtained, intf):
+    ready.release()
+    while True:
+        # CONNECTING
+        if intf.status.value == 0: 
+            msg = sv_conn.recv()
+            answer.append(msg)
+            answer_received.release()
+            answer_obtained.acquire()
+        # IN LOBBY
+        elif intf.status.value == 1:
+            msg = sv_conn.recv()
+            if msg[0] == 2: #if is a notification, handle it now
+                intf.update_log(msg[1])
+            else:
+                answer.append(msg)
+                answer_received.release()
+                answer_obtained.acquire()
+        # PLAYING
+        elif intf.status.value == 2:
+            msg = sv_conn.recv()
+            answer.append(msg)
+            answer_received.release()
+            answer_obtained.acquire()
 def main(argv):
     if (len(argv) < 5):
         server_address = '127.0.0.1'
         server_port = 8080
-        local_name = 'test_name'
+        local_name = 'uname'
         local_address = '127.0.0.1'
         local_port = 8090
     else:
@@ -177,7 +202,7 @@ def main(argv):
         'authkey' : b"secret server pass"
     }
     local_info ={
-        'name'    : m.Value(ctypes.c_wchar_p, "pab"),
+        'name'    : m.Value(ctypes.c_wchar_p, local_name),
         'address' : local_address,
         'port'    : mp.Value('i',local_port),
         'authkey' : b"secret client pass"
@@ -186,7 +211,6 @@ def main(argv):
           f" at port {server_info['port']}\n"
           f"from {local_info['address']}"
           f" at port {local_info['port'].value}\n")
-
     with cn.Client(address=(server_info['address'], server_info['port']) ,
                       authkey= server_info['authkey']) as sv_conn:
         #lanzar la interfaz del juego
@@ -196,14 +220,28 @@ def main(argv):
                                  intf_ready)
         intf.printing.start()
         intf_ready.acquire()
-        #lanzar el proceso que escucha del juego
+        #lanzar el proceso que escucha de otros jugadores
         listener_ready = mp.Semaphore(value=0)
         sv = mp.Process(target = cl_listener, args = (local_info,
                                                    listener_ready,
                                                    intf))
         sv.start()
         listener_ready.acquire()
-        status = 0;  
+        status = 0
+        #lanzar el proceso que escucha del servidor
+        answer_received = mp.Semaphore(value=0)
+        answer_obtained = mp.Semaphore(value=0)
+        answer = m.list()
+        recv_ready = mp.Semaphore(value=0)
+        recv_process = mp.Process(target=recv_loop, args=(sv_conn,
+                                                          recv_ready,
+                                                          answer,
+                                                          answer_received,
+                                                          answer_obtained,
+                                                          intf))
+        recv_process.start()
+        recv_ready.acquire()
+        print("reciving conections")
         """ 
         status = { 0 => being added to playerbase  ,
                    1 => in lobby                   ,
@@ -211,45 +249,46 @@ def main(argv):
         """
         while True:
             # CONNECTING
-            if status == 0: 
+            if intf.status.value == 0: 
                 sv_conn.send(send_fmt(local_info))
-                (code, msg) = sv_conn.recv()
+                answer_received.acquire()
+                (code, msg) = answer.pop()
                 if code == 0: # 0 for connection success
-                    status = 1
+                    intf.status.value = 1
                 elif code == -1: # -1 for connection error
                     handle_conn_error(msg, local_info)
+                answer_obtained.release()
+
             # IN LOBBY
-            elif status == 1:
+            elif intf.status.value == 1:
                 msg_out = input("> ")
                 sv_conn.send(msg_out)
-                (code, msg) = sv_conn.recv()
+                answer_received.acquire()
+                (code, msg) = answer.pop()
                 if code == 0:
                     intf.update_log(msg)
                 elif code == 1:
-                    print(msg)
                     op_conn = cn.Client(address=(msg['address'],
                                                    msg['port']),
                                           authkey= msg['authkey'])
-                    status = 2  
+                    intf.status.value = 2  
                     (op_name, word_length) = sv_conn.recv()
                     intf.set_op(op_name)
                     intf.set_len(word_length)
+                answer_obtained.release()
             # PLAYING
-            elif status == 2:
+            elif intf.status.value == 2:
                 msg_out = input("")
                 if len(msg_out) == 1:
                     sv_conn.send(msg_out)
-                    (code, game_state) = sv_conn.recv()
-                    if code == 1: #game ongoing
-                        update_game_state(game_state)
-                    elif code == 0: #game over
-                        print(game_state)
-                        status = 1 #in lobby
-                        op_conn.close()
+                    answer_received.acquire()
+                    #handle answer
+                    answer_obtained.release()
                 else:
                     fmtd_msg_out = (local_info['name'].value, msg_out)
                     op_conn.send(fmtd_msg_out)
-                    intf.update_log(f"[{fmtd_msg_out[0]}]: {fmtd_msg_out[1]}")
+                    intf.update_log([f"[{fmtd_msg_out[0]}]: {fmtd_msg_out[1]}"])
+
 
 #conectar con el servidor
 if __name__ == '__main__':
