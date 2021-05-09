@@ -28,7 +28,8 @@ class Playerbase:
         self.manager = manager
         self.players = manager.dict()
         self.mutex = mp.Lock()
-        self.requests = manager.list()
+        self.requests = manager.dict()
+        self.accepted = manager.dict()
         self.cond = mp.Condition(self.mutex)
 
     def add(self, player, player_info, player_conn):
@@ -37,7 +38,11 @@ class Playerbase:
             self.players[player]
             username_taken = True
         except:
-            self.players[player] = PlayerInfo(player_conn, player_info, self.manager)
+            self.players[player] = PlayerInfo(player_conn,
+                                              player_info,
+                                              self.manager)
+            self.requests[player] = []
+            self.accepted[player] = 0
             username_taken = False
         self.mutex.release()
         if username_taken:
@@ -57,18 +62,28 @@ class Playerbase:
 
     def acceptRequest(self, opponent):
         self.mutex.acquire()
-        self.requests.append((opponent, self.username))
+        out = False
+        print(f"{self.requests[self.username]}")
+        if opponent in self.requests[self.username]:
+            self.accepted[opponent] = 1
+            out = True
+        print(f"after if {out}")
         self.cond.notify_all()
         self.mutex.release()
+        return out
 
     def makeRequest(self, opponent):
         self.mutex.acquire()
+        player = self.username
+        self.requests[opponent] = self.requests[opponent] + [self.username]
         notification = (2, [f"You received a game request from {self.username}!"])
         self.players[opponent].get_conn().send(notification)
-        print("request sent to {opponent}")
-        out = self.cond.wait_for(lambda: 
-                (self.username, opponent) in self.listRequests(),
-                timeout = 10)
+        out = self.cond.wait_for(lambda: self.accepted[self.username] == 1,
+                                 timeout = 10)
+        self.requests[opponent] = list(filter(lambda x: x!=player,
+                                              self.requests[opponent]))
+        print(self.requests[opponent])
+        self.accepted[self.username] = 0
         self.mutex.release()
         return out
 
@@ -107,9 +122,13 @@ def process_input(msg, new_player, pb, status):
     elif command == 'accept':
         try:
             op = args
-            pb.acceptRequest(op)
-            msg_out = (1, pb.getInfo(op))
-            status = 2
+            if pb.acceptRequest(op):
+                msg_out = (1, pb.getInfo(op))
+                print(msg_out)
+                status = 2
+                new_player.send((2, ["Game request accepted"]))
+            else:
+                to_print = [f"you didn't receive any request from {op}"]
         except KeyError:
             to_print = ["couldn't find opponent, type 'ls' for list"]
             msg_out = (0, to_print)
@@ -121,6 +140,7 @@ def process_input(msg, new_player, pb, status):
                 opponent_info = pb.getInfo(op)
                 msg_out = (1, opponent_info)
                 status = 2
+                new_player.send((2, ["Game request accepted!"]))
             else:
                 raise RequestDenied
         except RequestDenied:
@@ -130,15 +150,6 @@ def process_input(msg, new_player, pb, status):
             to_print = ["couldn't find opponent, type 'ls' for list"]
             msg_out = (0, to_print)
 
-# borrar aqui
-    elif command == 'info':
-        try:
-            tar = args
-            tar_info = pb.getInfo(tar).items()
-            msg_out = (0, tar_info)
-        except:
-            pass
-#hasta aqui
     else:
         to_print = ["unknown command, type 'help' to see available ones"] 
         msg_out = (0, to_print)

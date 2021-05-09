@@ -281,6 +281,12 @@ def main(argv):
                     (op_name, word_length) = sv_conn.recv()
                     intf.set_op(op_name)
                     intf.set_len(word_length)
+                    w1 = "You are starting a game of hangman now"
+                    w2 = " -if you type a character it will be checked against"
+                    w3 = " the word you are attempting to guess."
+                    w4 = " -if you type a word it will be sent to your opponent"
+                    w5 = " via a private chat only you and him can read."
+                    intf.update_log([w1,w2,w3,w4,w5])
                 answer_obtained.release()
             # PLAYING
             elif intf.status.value == 2:
